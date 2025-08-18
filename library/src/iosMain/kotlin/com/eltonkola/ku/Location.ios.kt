@@ -1,7 +1,9 @@
 package com.eltonkola.ku
 
 import androidx.compose.runtime.Composable
+import kotlinx.cinterop.CValue
 import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.useContents
 import platform.CoreLocation.*
 import platform.darwin.NSObject
 import kotlinx.coroutines.channels.awaitClose
@@ -26,19 +28,22 @@ actual class LocationClient actual constructor() {
     @OptIn(ExperimentalForeignApi::class)
     actual fun getLocation(): Flow<LocationState> = callbackFlow {
         val delegate = LocationDelegate { location ->
-            trySend(
-                LocationState.Success(
-                    Location(
-                        latitude = location.coordinate.latitude,
-                        longitude = location.coordinate.longitude,
-                        accuracy = location.horizontalAccuracy.toFloat(),
-                        altitude = location.altitude,
-                        speed = location.speed.toFloat(),
-                        bearing = location.course.toFloat().takeIf { it >= 0 },
-                        timestamp = location.timestamp.toEpochMillis()
+            val coordinates = location.coordinate
+            coordinates.useContents {
+                trySend(
+                    LocationState.Success(
+                        Location(
+                            latitude = latitude,
+                            longitude = longitude,
+                            accuracy = location.horizontalAccuracy.toFloat(),
+                            altitude = location.altitude,
+                            speed = location.speed.toFloat(),
+                            bearing = location.course.toFloat().takeIf { it >= 0 },
+                            timestamp = location.timestamp.timeIntervalSince1970.toLong() * 1000
+                        )
                     )
                 )
-            )
+            }
         }
 
         this@LocationClient.delegate = delegate
