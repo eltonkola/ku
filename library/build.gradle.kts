@@ -43,8 +43,6 @@ kotlin {
         binaries.executable()
     }
 
-
-
     sourceSets {
         val commonMain by getting {
             dependencies {
@@ -109,13 +107,13 @@ mavenPublishing {
 
     pom {
         name = "Ku"
-        description = "A simple location library."
+        description = "Simple location handling for Compose Multiplatform."
         inceptionYear = "2024"
         url = "https://github.com/eltonkola/ku/"
         licenses {
             license {
-                name.set("MIT License")
-                url.set("https://opensource.org/licenses/MIT")
+                name.set("Apache 2.0 License")
+                url.set("http://www.apache.org/licenses/LICENSE-2.0")
                 distribution.set("repo")
             }
         }

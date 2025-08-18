@@ -9,6 +9,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -19,46 +20,44 @@ import androidx.compose.ui.Modifier
 
 @Composable
 fun LocationProvider(
-    permissionDeniedContent: @Composable (() -> Unit) -> Unit = { requestPermission ->
-        DefaultPermissionDeniedContent(onRequestPermission = requestPermission)
+    onPermissionDenied: @Composable (() -> Unit) -> Unit = { requestPermission ->
+        DefaultPermissionDeniedUi(onRequestPermission = requestPermission)
     },
-    loadingContent: @Composable () -> Unit = { DefaultLoadingContent() },
-    errorContent: @Composable (String) -> Unit = { DefaultErrorContent(it) },
-    content: @Composable (Location) -> Unit,
-    requestButton: @Composable (() -> Unit) -> Unit = { onClick ->
-        DefaultRequestButton(onClick = onClick)
+    onLoading: @Composable () -> Unit = { DefaultLoadingUi() },
+    onError: @Composable (String) -> Unit = { DefaultErrorUi(it) },
+    onLocationReceived: @Composable (Location) -> Unit,
+    initialContent: @Composable (() -> Unit) -> Unit = { onRequestLocation ->
+        DefaultInitialUi(onRequestLocation = onRequestLocation)
     },
-    requestOnStart: Boolean = false
+    autoRequest: Boolean = false
 ) {
-    //println("LocationProvider init : $currentPlatform")
     val locationClient = rememberLocationClient()
-    var shouldRequestLocation by remember(requestOnStart) { mutableStateOf(requestOnStart) }
-    val locationState by locationClient.getLocation().collectAsState(initial = LocationState.Loading)
+    var isLocationRequested by remember { mutableStateOf(false) }
 
-    if (shouldRequestLocation) {
-        when (locationState) {
-            is LocationState.Success -> {
-                content((locationState as LocationState.Success).location)
-            }
-            LocationState.PermissionDenied -> {
-                permissionDeniedContent { locationClient.requestPermission() }
-            }
-            is LocationState.Error -> {
-                errorContent((locationState as LocationState.Error).message)
-            }
-            LocationState.Loading -> {
-                loadingContent()
-            }
+    // Handle auto request on start
+    LaunchedEffect(autoRequest) {
+        if (autoRequest) {
+            isLocationRequested = true
         }
-    }else{
-        requestButton { shouldRequestLocation = true }
     }
 
+    if (isLocationRequested) {
+        val locationState by locationClient.getLocation().collectAsState(initial = LocationState.Loading)
+
+        when (val state = locationState) {
+            is LocationState.Success -> onLocationReceived(state.location)
+            LocationState.PermissionDenied -> onPermissionDenied { locationClient.requestPermission() }
+            is LocationState.Error -> onError(state.message)
+            LocationState.Loading -> onLoading()
+        }
+    } else {
+        initialContent { isLocationRequested = true }
+    }
 }
 
 @Composable
-private fun DefaultRequestButton(onClick: () -> Unit) {
-    Button(onClick = onClick) {
+private fun DefaultInitialUi(onRequestLocation: () -> Unit) {
+    Button(onClick = onRequestLocation) {
         Text("Get My Location")
     }
 }
@@ -79,7 +78,7 @@ private fun rememberLocationClient(): LocationClient {
 
 // Default UI components
 @Composable
-private fun DefaultPermissionDeniedContent(onRequestPermission: () -> Unit) {
+private fun DefaultPermissionDeniedUi(onRequestPermission: () -> Unit) {
     Column {
         Text("We need location permission to show your position")
         Button(onClick = onRequestPermission) {
@@ -89,14 +88,14 @@ private fun DefaultPermissionDeniedContent(onRequestPermission: () -> Unit) {
 }
 
 @Composable
-private fun DefaultLoadingContent() {
+private fun DefaultLoadingUi() {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         CircularProgressIndicator()
     }
 }
 
 @Composable
-private fun DefaultErrorContent(message: String) {
+private fun DefaultErrorUi(message: String) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Text("Error: $message", color = MaterialTheme.colorScheme.error)
     }
