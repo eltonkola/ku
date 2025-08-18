@@ -17,6 +17,28 @@ on:
 permissions:
   contents: read
 
+#  allTests
+#  check
+#  checkJetifier
+#  checkKotlinGradlePluginConfigurationErrors
+#  connectedAndroidTest
+#  connectedCheck
+#  connectedDebugAndroidTest
+#  desktopTest
+#  deviceAndroidTest
+#  deviceCheck
+#  iosSimulatorArm64Test
+#  iosX64Test
+#  lint
+#  lintDebug
+#  lintFix
+#  lintRelease
+#  test
+#  testDebugUnitTest
+#  testReleaseUnitTest
+#  updateLintBaseline
+#  wasmJsTest
+
 jobs:
   build:
     strategy:
@@ -24,7 +46,7 @@ jobs:
         include:
           - target: iosSimulatorArm64Test
             os: macos-latest
-          - target: jvmTest
+          - target: desktopTest
             os: ubuntu-latest
           - target: wasmJsTest
             os: ubuntu-latest
