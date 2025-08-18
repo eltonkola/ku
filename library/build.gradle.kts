@@ -65,6 +65,9 @@ kotlin {
                 implementation(libs.kotlin.test)
             }
         }
+        val jvmTest by getting
+        val androidUnitTest by getting
+        val wasmJsTest by getting
     }
 }
 

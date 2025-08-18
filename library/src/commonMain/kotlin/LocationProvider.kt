@@ -1,5 +1,22 @@
 package com.eltonkola.ku
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+
 @Composable
 fun LocationProvider(
     permissionDeniedContent: @Composable (() -> Unit) -> Unit = { requestPermission ->
@@ -9,6 +26,7 @@ fun LocationProvider(
     errorContent: @Composable (String) -> Unit = { DefaultErrorContent(it) },
     content: @Composable (Location) -> Unit
 ) {
+    println("LocationProvider init : $currentPlatform")
     val locationClient = rememberLocationClient()
     var shouldRequestLocation by remember { mutableStateOf(false) }
     val locationState by locationClient.getLocation().collectAsState(initial = LocationState.Loading)
@@ -38,15 +56,14 @@ fun LocationProvider(
 @Composable
 private fun rememberLocationClient(): LocationClient {
     val client = remember { LocationClient() }
+    val context = getPlatformContext()
 
-    if (Platform.isAndroid()) {
-        val context = LocalContext.current
-        DisposableEffect(client) {
-            (client as? AndroidLocationClient)?.setContext(context)
-            onDispose { }
+    DisposableEffect(client, context) {
+        client.initialize(context)
+        onDispose {
+            client.onDispose()
         }
     }
-
     return client
 }
 
@@ -71,6 +88,6 @@ private fun DefaultLoadingContent() {
 @Composable
 private fun DefaultErrorContent(message: String) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text("Error: $message", color = MaterialTheme.colors.error)
+        Text("Error: $message", color = MaterialTheme.colorScheme.error)
     }
 }
