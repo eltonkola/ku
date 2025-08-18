@@ -76,7 +76,10 @@ kotlin {
         }
         val wasmJsMain by getting {
             dependencies {
-                implementation(kotlin("stdlib-js"))
+                implementation(compose.runtime)
+                implementation(compose.foundation)
+                implementation(compose.ui)
+                implementation(libs.kotlinx.coroutines.core)
             }
         }
 
