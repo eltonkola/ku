@@ -4,6 +4,33 @@
 
 ## What is it?
 
+'''
+@Composable
+fun MyApp() {
+LocationProvider(
+// Optional: Customize the permission prompt
+permissionDeniedContent = { requestPermission ->
+PermissionDeniedScreen(onRequestPermission = requestPermission)
+},
+
+        // Optional: Customize loading state
+        loadingContent = { LoadingIndicator() },
+        
+        // Optional: Customize error handling
+        errorContent = { error ->
+            LocationErrorScreen(errorMessage = error)
+        },
+        
+        // Required: Handle successful location
+        content = { location ->
+            MapView(latitude = location.latitude, longitude = location.longitude)
+        }
+    )
+}
+'''
+
+
+
 This repository contains a simple library project, intended to demonstrate a [Kotlin Multiplatform](https://kotlinlang.org/docs/multiplatform.html) library that is deployable to [Maven Central](https://central.sonatype.com/).
 
 The library has only one function: generate the [Fibonacci sequence](https://en.wikipedia.org/wiki/Fibonacci_sequence) starting from platform-provided numbers. Also, it has a test for each platform just to be sure that tests run.
