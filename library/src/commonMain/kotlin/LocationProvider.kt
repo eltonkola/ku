@@ -24,11 +24,15 @@ fun LocationProvider(
     },
     loadingContent: @Composable () -> Unit = { DefaultLoadingContent() },
     errorContent: @Composable (String) -> Unit = { DefaultErrorContent(it) },
-    content: @Composable (Location) -> Unit
+    content: @Composable (Location) -> Unit,
+    requestButton: @Composable (() -> Unit) -> Unit = { onClick ->
+        DefaultRequestButton(onClick = onClick)
+    },
+    requestOnStart: Boolean = false
 ) {
-    println("LocationProvider init : $currentPlatform")
+    //println("LocationProvider init : $currentPlatform")
     val locationClient = rememberLocationClient()
-    var shouldRequestLocation by remember { mutableStateOf(false) }
+    var shouldRequestLocation by remember(requestOnStart) { mutableStateOf(requestOnStart) }
     val locationState by locationClient.getLocation().collectAsState(initial = LocationState.Loading)
 
     if (shouldRequestLocation) {
@@ -46,9 +50,15 @@ fun LocationProvider(
                 loadingContent()
             }
         }
+    }else{
+        requestButton { shouldRequestLocation = true }
     }
 
-    Button(onClick = { shouldRequestLocation = true }) {
+}
+
+@Composable
+private fun DefaultRequestButton(onClick: () -> Unit) {
+    Button(onClick = onClick) {
         Text("Get My Location")
     }
 }

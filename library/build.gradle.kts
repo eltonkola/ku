@@ -32,7 +32,16 @@ kotlin {
     iosSimulatorArm64()
 
     @OptIn(ExperimentalWasmDsl::class)
-    wasmJs()
+    wasmJs {
+        browser {
+            commonWebpackConfig {
+                cssSupport {
+                    enabled = true
+                }
+            }
+        }
+        binaries.executable()
+    }
 
 
 
@@ -65,6 +74,12 @@ kotlin {
                 implementation(libs.kotlin.test)
             }
         }
+        val wasmJsMain by getting {
+            dependencies {
+                implementation(kotlin("stdlib-js"))
+            }
+        }
+
         val androidUnitTest by getting
         val wasmJsTest by getting
     }
