@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalWasmDsl::class)
+
 import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
@@ -11,7 +13,7 @@ plugins {
 }
 
 group = "io.github.eltonkola"
-version = "0.0.2"
+version = "0.0.3"
 
 kotlin {
     jvm("desktop") {
@@ -31,17 +33,21 @@ kotlin {
     iosArm64()
     iosSimulatorArm64()
 
-    @OptIn(ExperimentalWasmDsl::class)
     wasmJs {
-        browser {
-            commonWebpackConfig {
-                cssSupport {
-                    enabled = true
-                }
-            }
-        }
+        browser()
         binaries.executable()
     }
+//    @OptIn(ExperimentalWasmDsl::class)
+//    wasmJs {
+//        browser {
+//            commonWebpackConfig {
+//                cssSupport {
+//                    enabled = true
+//                }
+//            }
+//        }
+//        binaries.executable()
+//    }
 
     sourceSets {
         val commonMain by getting {
@@ -58,6 +64,7 @@ kotlin {
         val androidMain by getting {
             dependencies {
                 implementation(libs.play.services.location)
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
             }
         }
         val desktopMain by getting {
@@ -78,6 +85,10 @@ kotlin {
                 implementation(compose.foundation)
                 implementation(compose.ui)
                 implementation(libs.kotlinx.coroutines.core)
+
+                implementation(project.dependencies.platform(libs.kotlin.wrappers.bom))
+                implementation(libs.kotlin.browser)
+
             }
         }
 

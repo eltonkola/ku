@@ -2,18 +2,22 @@ package com.eltonkola.ku
 
 import androidx.compose.runtime.Composable
 import kotlinx.coroutines.flow.Flow
+import kotlin.time.Clock
+import kotlin.time.ExperimentalTime
 
-data class Location(
+data class Location @OptIn(ExperimentalTime::class) constructor(
     val latitude: Double,
     val longitude: Double,
-    // Optional fields (nullable for platforms that don't support them)
-    val accuracy: Float? = null,        // Horizontal accuracy in meters
-    val altitude: Double? = null,       // Height above sea level in meters
-    val speed: Float? = null,           // Speed in m/s
-    val bearing: Float? = null,         // Degrees from true north (0-360)
-    val timestamp: Long? = null,        // UTC epoch milliseconds
+    val accuracy: Float? = null,
+    val altitude: Double? = null,
+    val speed: Float? = null,
+    val bearing: Float? = null,
+    val timestamp: Long = Clock.System.now().toEpochMilliseconds(),
     val provider: String? = null
-)
+) {
+    val isAccurate: Boolean get() = accuracy?.let { it <= 50f } ?: false
+    val hasMovement: Boolean get() = speed?.let { it > 0.5f } ?: false
+}
 
 sealed class LocationState {
     object Loading : LocationState()
@@ -24,21 +28,19 @@ sealed class LocationState {
 
 expect class LocationClient() {
     fun initialize(context: Any?)
-    fun getLocation(): Flow<LocationState>
+    fun getLocation(config: LocationConfig, retryTrigger: Int): Flow<LocationState>
     fun hasPermission(): Boolean
     fun requestPermission()
     fun onDispose()
 }
 
-
 enum class PlatformType {
-    ANDROID,
-    IOS,
-    DESKTOP,
-    WASM
+    ANDROID, IOS, DESKTOP, WASM
 }
 
 expect val currentPlatform: PlatformType
 
 @Composable
 expect fun getPlatformContext(): Any?
+
+

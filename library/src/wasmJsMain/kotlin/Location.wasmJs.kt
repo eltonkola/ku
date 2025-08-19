@@ -2,83 +2,236 @@ package com.eltonkola.ku
 
 import androidx.compose.runtime.Composable
 import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
-@JsFun("() => navigator.geolocation.getCurrentPosition !== undefined")
-private external fun hasGeolocation(): Boolean
-
-@JsFun("""
-(successCallback, errorCallback) => {
-    const successWrapper = (pos) => successCallback(
-        pos.coords.latitude,
-        pos.coords.longitude,
-        pos.coords.accuracy,
-        pos.coords.speed ?? null,
-        pos.timestamp
-    );
-    const errorWrapper = (err) => errorCallback(err.code, err.message);
-    return navigator.geolocation.watchPosition(
-        successWrapper,
-        errorWrapper,
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-    );
+// External declarations for browser APIs
+external interface GeolocationPosition {
+    val coords: GeolocationCoordinates
+    val timestamp: Double
 }
-""")
-private external fun watchPosition(
-    onSuccess: (lat: Double, lng: Double, accuracy: Double, speed: Double?, timestamp: Double) -> Unit,
-    onError: (code: Int, message: String) -> Unit
-): Int
 
-@JsFun("(id) => navigator.geolocation.clearWatch(id)")
-private external fun clearWatch(id: Int)
+external interface GeolocationCoordinates {
+    val latitude: Double
+    val longitude: Double
+    val accuracy: Double?
+    val altitude: Double?
+    val altitudeAccuracy: Double?
+    val heading: Double?
+    val speed: Double?
+}
+
+external interface GeolocationPositionError {
+    val code: Short
+    val message: String
+}
+
+external interface GeolocationOptions {
+    val enableHighAccuracy: Boolean?
+    val timeout: Int?
+    val maximumAge: Int?
+}
+
+external interface Navigator {
+    val geolocation: Geolocation
+}
+
+external interface Geolocation {
+    fun getCurrentPosition(
+        successCallback: (GeolocationPosition) -> Unit,
+        errorCallback: ((GeolocationPositionError) -> Unit)? = definedExternally,
+        options: GeolocationOptions? = definedExternally
+    )
+
+    fun watchPosition(
+        successCallback: (GeolocationPosition) -> Unit,
+        errorCallback: ((GeolocationPositionError) -> Unit)? = definedExternally,
+        options: GeolocationOptions? = definedExternally
+    ): Int
+
+    fun clearWatch(watchId: Int)
+}
+
+external val navigator: Navigator
+
+// Helper function to create GeolocationOptions
+private fun createGeolocationOptions(
+    enableHighAccuracy: Boolean = false,
+    timeout: Int = 10000,
+    maximumAge: Int = 60000
+): GeolocationOptions {
+    val obj = js("({})")
+    obj["enableHighAccuracy"] = enableHighAccuracy
+    obj["timeout"] = timeout
+    obj["maximumAge"] = maximumAge
+    return obj as GeolocationOptions
+}
 
 actual class LocationClient actual constructor() {
-    actual fun getLocation(): Flow<LocationState> = callbackFlow {
-        if (!hasGeolocation()) {
-            trySend(LocationState.Error("Geolocation API not available"))
-            close()
-            return@callbackFlow
-        }
+    private var isDisposed = false
+    private var watchId: Int? = null
 
-        trySend(LocationState.Loading)
-
-        val watchId = watchPosition(
-            onSuccess = { lat, lng, accuracy, speed, timestamp ->
-                trySend(
-                    LocationState.Success(
-                        Location(
-                            latitude = lat,
-                            longitude = lng,
-                            accuracy = accuracy.toFloat(),
-                            speed = speed?.toFloat(),
-                            timestamp = timestamp.toLong(),
-                            provider = "web"
-                        )
-                    )
-                )
-            },
-            onError = { code, message ->
-                trySend(
-                    when (code) {
-                        1 -> LocationState.PermissionDenied
-                        2 -> LocationState.Error("Position unavailable: $message")
-                        3 -> LocationState.Error("Timeout: $message")
-                        else -> LocationState.Error("Unknown error: $message")
-                    }
-                )
-            }
-        )
-
-        awaitClose {
-            clearWatch(watchId)
+    actual fun initialize(context: Any?) {
+        if (!isGeolocationSupported()) {
+            throw IllegalStateException("Geolocation is not supported in this browser")
         }
     }
 
-    actual fun initialize(context: Any?) = Unit
-    actual fun hasPermission(): Boolean = true
-    actual fun requestPermission() = Unit
-    actual fun onDispose() = Unit
+    actual fun getLocation(config: LocationConfig, retryTrigger: Int): Flow<LocationState> =
+        flow {
+            emit(LocationState.Loading)
+
+            if (isDisposed) {
+                emit(LocationState.Error("LocationClient is disposed"))
+                return@flow
+            }
+
+            if (!isGeolocationSupported()) {
+                emit(LocationState.Error("Geolocation not supported in this browser"))
+                return@flow
+            }
+
+            if (!isSecureContext()) {
+                emit(LocationState.Error("Geolocation requires HTTPS. Please use a secure connection."))
+                return@flow
+            }
+
+            try {
+                if (config.singleRequest) {
+                    getSingleLocation(config)?.let { location ->
+                        emit(LocationState.Success(location))
+                    } ?: emit(LocationState.Error("Unable to get current location"))
+                } else {
+                    getContinuousLocation(config).collect { state ->
+                        emit(state)
+                    }
+                }
+            } catch (e: Exception) {
+                emit(LocationState.Error("Location request failed: ${e.message}"))
+            }
+        }
+            .catch { e ->
+                emit(LocationState.Error("Location flow error: ${e.message}"))
+            }
+            .distinctUntilChanged()
+
+    private suspend fun getSingleLocation(config: LocationConfig): Location? {
+        return withTimeoutOrNull(config.timeoutMs) {
+            suspendCancellableCoroutine { continuation ->
+                val options = createGeolocationOptions(
+                    enableHighAccuracy = config.highAccuracy,
+                    timeout = config.timeoutMs.toInt(),
+                    maximumAge = 60000
+                )
+
+                navigator.geolocation.getCurrentPosition(
+                    successCallback = { position ->
+                        try {
+                            continuation.resume(position.toLocation())
+                        } catch (e: Exception) {
+                            continuation.resumeWithException(e)
+                        }
+                    },
+                    errorCallback = { error ->
+                        continuation.resumeWithException(Exception(getErrorMessage(error)))
+                    },
+                    options = options
+                )
+            }
+        }
+    }
+
+    private fun getContinuousLocation(config: LocationConfig): Flow<LocationState> = callbackFlow {
+        val options = createGeolocationOptions(
+            enableHighAccuracy = config.highAccuracy,
+            timeout = config.timeoutMs.toInt(),
+            maximumAge = 5000
+        )
+
+        watchId = navigator.geolocation.watchPosition(
+            successCallback = { position ->
+                if (!isDisposed) {
+                    try {
+                        trySend(LocationState.Success(position.toLocation()))
+                    } catch (e: Exception) {
+                        trySend(LocationState.Error("Failed to parse location: ${e.message}"))
+                    }
+                }
+            },
+            errorCallback = { error ->
+                if (!isDisposed) {
+                    trySend(LocationState.Error(getErrorMessage(error)))
+                }
+            },
+            options = options
+        )
+
+        awaitClose { cleanup() }
+    }
+
+    actual fun hasPermission(): Boolean = isGeolocationSupported()
+
+    actual fun requestPermission() {
+        if (isGeolocationSupported()) {
+            navigator.geolocation.getCurrentPosition(
+                successCallback = { /* Permission granted */ },
+                errorCallback = { /* Permission denied or error */ },
+                options = createGeolocationOptions(
+                    enableHighAccuracy = false,
+                    timeout = 1000,
+                    maximumAge = 86400000
+                )
+            )
+        }
+    }
+
+    private fun cleanup() {
+        watchId?.let { navigator.geolocation.clearWatch(it) }
+        watchId = null
+    }
+
+    actual fun onDispose() {
+        isDisposed = true
+        cleanup()
+    }
+
+    private fun isGeolocationSupported(): Boolean {
+        return try {
+            js("typeof navigator !== 'undefined' && 'geolocation' in navigator") as Boolean
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun getErrorMessage(error: GeolocationPositionError): String {
+        return when (error.code.toInt()) {
+            1 -> "Location access denied by user"
+            2 -> "Location information unavailable"
+            3 -> "Location request timeout"
+            else -> "Unknown location error: ${error.message}"
+        }
+    }
+}
+
+// Extension function to convert browser Position to our Location
+private fun GeolocationPosition.toLocation(): Location {
+    return Location(
+        latitude = coords.latitude,
+        longitude = coords.longitude,
+        accuracy = coords.accuracy?.toFloat(),
+        altitude = coords.altitude,
+        speed = coords.speed?.toFloat(),
+        bearing = coords.heading?.toFloat(),
+        timestamp = timestamp.toLong(),
+        provider = "Browser Geolocation API"
+    )
 }
 
 actual val currentPlatform: PlatformType
@@ -86,3 +239,11 @@ actual val currentPlatform: PlatformType
 
 @Composable
 actual fun getPlatformContext(): Any? = null
+
+fun isSecureContext(): Boolean {
+    return try {
+        js("typeof window !== 'undefined' && (window.isSecureContext || location.protocol === 'https:' || location.hostname === 'localhost')") as Boolean
+    } catch (e: Exception) {
+        false
+    }
+}
