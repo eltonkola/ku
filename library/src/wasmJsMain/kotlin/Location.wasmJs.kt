@@ -61,17 +61,24 @@ external interface Geolocation {
 
 external val navigator: Navigator
 
+// Top-level JS functions (required for Kotlin/WASM)
+private fun createGeolocationOptionsJs(
+    enableHighAccuracy: Boolean,
+    timeout: Int,
+    maximumAge: Int
+): GeolocationOptions = js("({ enableHighAccuracy: enableHighAccuracy, timeout: timeout, maximumAge: maximumAge })")
+
+private fun checkGeolocationSupport(): Boolean = js("typeof navigator !== 'undefined' && 'geolocation' in navigator")
+
+private fun checkSecureContext(): Boolean = js("typeof window !== 'undefined' && (window.isSecureContext || location.protocol === 'https:' || location.hostname === 'localhost')")
+
 // Helper function to create GeolocationOptions
 private fun createGeolocationOptions(
     enableHighAccuracy: Boolean = false,
     timeout: Int = 10000,
     maximumAge: Int = 60000
 ): GeolocationOptions {
-    val obj = js("({})")
-    obj["enableHighAccuracy"] = enableHighAccuracy
-    obj["timeout"] = timeout
-    obj["maximumAge"] = maximumAge
-    return obj as GeolocationOptions
+    return createGeolocationOptionsJs(enableHighAccuracy, timeout, maximumAge)
 }
 
 actual class LocationClient actual constructor() {
@@ -204,7 +211,7 @@ actual class LocationClient actual constructor() {
 
     private fun isGeolocationSupported(): Boolean {
         return try {
-            js("typeof navigator !== 'undefined' && 'geolocation' in navigator") as Boolean
+            checkGeolocationSupport()
         } catch (e: Exception) {
             false
         }
@@ -242,7 +249,7 @@ actual fun getPlatformContext(): Any? = null
 
 fun isSecureContext(): Boolean {
     return try {
-        js("typeof window !== 'undefined' && (window.isSecureContext || location.protocol === 'https:' || location.hostname === 'localhost')") as Boolean
+        checkSecureContext()
     } catch (e: Exception) {
         false
     }

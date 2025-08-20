@@ -13,8 +13,10 @@ import androidx.core.content.ContextCompat
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
 import com.google.android.gms.location.*
+import com.google.android.gms.tasks.Task
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeoutOrNull
 
 actual class LocationClient actual constructor() {
@@ -189,9 +191,6 @@ actual class LocationClient actual constructor() {
         private const val LOCATION_PERMISSION_REQUEST_CODE = 1001
     }
 }
-
-// Extension for async operations
-private suspend fun <T> Task<T>.await(): T = this.await()
 
 actual val currentPlatform: PlatformType get() = PlatformType.ANDROID
 

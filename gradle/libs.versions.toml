@@ -7,14 +7,11 @@ compose-multiplatform = "1.8.2"
 vanniktech="0.34.0"
 coroutinesVersion ="1.10.2"
 play-services-location ="21.3.0"
-kotlinWrappers = "2025.8.15"
 [libraries]
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
 play-services-location = { module = "com.google.android.gms:play-services-location", version.ref = "play-services-location" }
 kotlinx-coroutines-swing = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-swing", version.ref = "coroutinesVersion" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutinesVersion" }
-kotlin-wrappers-bom = { group = "org.jetbrains.kotlin-wrappers", name = "kotlin-wrappers-bom", version.ref = "kotlinWrappers" }
-kotlin-browser = { group = "org.jetbrains.kotlin-wrappers", name = "kotlin-browser" }
 [plugins]
 androidLibrary = { id = "com.android.library", version.ref = "agp" }
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }

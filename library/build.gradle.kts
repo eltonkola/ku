@@ -82,13 +82,7 @@ kotlin {
         val wasmJsMain by getting {
             dependencies {
                 implementation(compose.runtime)
-                implementation(compose.foundation)
-                implementation(compose.ui)
                 implementation(libs.kotlinx.coroutines.core)
-
-                implementation(project.dependencies.platform(libs.kotlin.wrappers.bom))
-                implementation(libs.kotlin.browser)
-
             }
         }
 
