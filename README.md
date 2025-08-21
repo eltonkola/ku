@@ -10,11 +10,13 @@ A beautiful, declarative Kotlin Multiplatform library for effortless location ha
 ## ✨ Features
 
 - 🎯 **Simple & Declarative** - One composable handles everything
-- 🔒 **Permission Management** - Automatic permission handling
+- 🔒 **Permission Management** - Automatic permission handling with graceful fallbacks
 - 🎨 **Fully Customizable** - Override any UI component
 - 📱 **Kotlin Multiplatform** - Works on Android, iOS, and more
 - ⚡ **Compose-First** - Built specifically for Jetpack/Compose Multiplatform
 - 🛡️ **Type-Safe** - Leverages Kotlin's type system for reliability
+- 🔄 **Smart Error Handling** - Shows stable location even when GPS signal is lost
+- 🎛️ **Flexible Configuration** - Customizable update intervals, accuracy, and timeouts
 
 ## 🚀 Quick Start
 
@@ -25,26 +27,66 @@ Add KU to your `commonMain` dependencies:
 ```kotlin
 commonMain {
     dependencies {
-        implementation("io.github.eltonkola:ku:0.0.2")
+        implementation("io.github.eltonkola:ku:0.0.3")
     }
 }
 ```
 
 ## 📖 Usage Guide
 
-### Auto-Request Location
+### Simple Auto-Request
 
 Start requesting location immediately when the composable loads:
 
 ```kotlin
 LocationProvider(
-    autoRequest = true,
+    config = LocationConfig(autoRequest = true),
     onLocationReceived = { location ->
-        ShowLocationOnMap(location)
+        Text("Location: ${location.format()}")
     }
 )
 ```
-That's it! KU handles permissions, loading states, and errors automatically.
+
+### Manual Location Request
+
+Let users control when to request location:
+
+```kotlin
+LocationProvider(
+    onLocationReceived = { location ->
+        Column {
+            Text("Latitude: ${location.latitude}")
+            Text("Longitude: ${location.longitude}")
+            Text("Accuracy: ${location.accuracy}m")
+        }
+    },
+    onInitial = { onRequestLocation ->
+        Button(onClick = onRequestLocation) {
+            Text("Get My Location")
+        }
+    }
+)
+```
+
+### Configuration Options
+
+Customize location behavior with `LocationConfig`:
+
+```kotlin
+LocationProvider(
+    config = LocationConfig(
+        autoRequest = true,
+        singleRequest = false, // Set to true for one-time location
+        highAccuracy = true, // Use GPS for high accuracy
+        updateIntervalMs = 10_000L, // Update every 10 seconds
+        minUpdateIntervalMs = 5_000L, // Minimum 5 seconds between updates
+        timeoutMs = 30_000L // 30 second timeout
+    ),
+    onLocationReceived = { location ->
+        MapView(location)
+    }
+)
+```
 
 ### Custom UI Components
 
@@ -52,93 +94,203 @@ Override any part of the UI to match your design:
 
 ```kotlin
 LocationProvider(
-    initialContent = { onRequestLocation ->
+    onLocationReceived = { location ->
+        LocationCard(location)
+    },
+    onInitial = { onRequestLocation ->
         Card(
-            modifier = Modifier.fillMaxWidth(),
-            onClick = { onRequestLocation() }
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onRequestLocation() }
         ) {
             Row(
                 modifier = Modifier.padding(16.dp),
-                horizontalArrangement = Arrangement.spaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Find my location")
-                Icon(Icons.Default.LocationOn, contentDescription = null)
+                Column {
+                    Text(
+                        "Find My Location",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Text(
+                        "Tap to get your current position",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Icon(
+                    Icons.Default.LocationOn,
+                    contentDescription = "Location",
+                    tint = MaterialTheme.colorScheme.primary
+                )
             }
         }
     },
     onLoading = {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-            Spacer(modifier = Modifier.height(16.dp))
-            Text("Finding your location...", style = MaterialTheme.typography.bodyMedium)
+        Card {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                CircularProgressIndicator(
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    "Finding your location...",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Text(
+                    "This may take a few moments",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     },
     onPermissionDenied = { requestPermission ->
-        AlertDialog(
-            onDismissRequest = { /* Handle dismiss */ },
-            title = { Text("Location Permission Required") },
-            text = { Text("This app needs location access to show nearby places.") },
-            confirmButton = {
-                TextButton(onClick = { requestPermission() }) {
-                    Text("Grant Permission")
-                }
-            }
-        )
-    },
-    onError = { errorMessage ->
         Card(
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.errorContainer
             )
         ) {
-            Text(
-                text = "Location Error: $errorMessage",
+            Column(
                 modifier = Modifier.padding(16.dp),
-                color = MaterialTheme.colorScheme.onErrorContainer
-            )
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(
+                    Icons.Default.LocationOff,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.size(48.dp)
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    "Location Permission Required",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
+                Text(
+                    "We need access to your location to show nearby places and services.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(
+                    onClick = requestPermission,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("Grant Permission")
+                }
+            }
         }
     },
-    onLocationReceived = { location ->
-        LazyColumn {
-            item {
-                LocationCard(
-                    latitude = location.latitude,
-                    longitude = location.longitude,
-                    accuracy = location.accuracy
+    onError = { errorMessage, retry ->
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.errorContainer
+            )
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(
+                    Icons.Default.Error,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onErrorContainer
                 )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    "Location Error",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
+                Text(
+                    errorMessage,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Button(onClick = retry) {
+                    Text("Try Again")
+                }
             }
         }
     }
 )
 ```
 
-### Error Handling
+### Callback-Style Usage
 
-Handle location errors gracefully:
+For cases where you prefer callbacks over composable content:
 
 ```kotlin
 LocationProvider(
-    onError = { errorMessage ->
+    onLocationReceived = { location ->
+        // Handle location update
+        updateMapLocation(location)
+    },
+    onError = { error ->
+        // Handle error
+        showErrorToast(error)
+    },
+    onPermissionDenied = {
+        // Handle permission denied
+        showPermissionDialog()
+    },
+    config = LocationConfig(autoRequest = true)
+)
+```
+
+### Error Handling Strategies
+
+Handle different types of location errors:
+
+```kotlin
+LocationProvider(
+    onError = { errorMessage, retry ->
         when {
-            errorMessage.contains("GPS") -> {
+            errorMessage.contains("GPS") || errorMessage.contains("Location services") -> {
                 Column {
                     Text("GPS is disabled")
-                    Button(
-                        onClick = { /* Open location settings */ }
-                    ) {
-                        Text("Enable GPS")
+                    Text("Please enable location services in your device settings")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row {
+                        Button(onClick = { openLocationSettings() }) {
+                            Text("Open Settings")
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        OutlinedButton(onClick = retry) {
+                            Text("Retry")
+                        }
                     }
                 }
             }
-            errorMessage.contains("network") -> {
-                Text("Check your internet connection")
+            errorMessage.contains("timeout") -> {
+                Column {
+                    Text("Location request timed out")
+                    Text("Make sure you're not indoors and have a clear view of the sky")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(onClick = retry) {
+                        Text("Try Again")
+                    }
+                }
             }
             else -> {
-                Text("Location unavailable: $errorMessage")
+                Column {
+                    Text("Location Error")
+                    Text(errorMessage)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(onClick = retry) {
+                        Text("Retry")
+                    }
+                }
             }
         }
     },
@@ -148,6 +300,34 @@ LocationProvider(
 )
 ```
 
+### Hook-Style Usage
+
+Use the `useLocation` hook for more control:
+
+```kotlin
+@Composable
+fun MyLocationScreen() {
+    val locationState = useLocation(
+        config = LocationConfig(autoRequest = true, highAccuracy = true)
+    )
+    
+    when (locationState) {
+        LocationState.Loading -> {
+            CircularProgressIndicator()
+        }
+        is LocationState.Success -> {
+            LocationDetails(locationState.location)
+        }
+        is LocationState.Error -> {
+            ErrorMessage(locationState.message)
+        }
+        LocationState.PermissionDenied -> {
+            PermissionRequestUI()
+        }
+    }
+}
+```
+
 ## 🎨 API Reference
 
 ### LocationProvider Parameters
@@ -155,11 +335,24 @@ LocationProvider(
 | Parameter | Type | Description | Default |
 |-----------|------|-------------|---------|
 | `onLocationReceived` | `@Composable (Location) -> Unit` | Content displayed when location is successfully obtained | **Required** |
-| `initialContent` | `@Composable (() -> Unit) -> Unit` | Content displayed before location request | Default button |
-| `onLoading` | `@Composable () -> Unit` | Content displayed while fetching location | Loading spinner |
-| `onPermissionDenied` | `@Composable (() -> Unit) -> Unit` | Content displayed when permission is denied | Permission request UI |
-| `onError` | `@Composable (String) -> Unit` | Content displayed when an error occurs | Error message |
+| `modifier` | `Modifier` | Modifier for the LocationProvider container | `Modifier` |
+| `config` | `LocationConfig` | Configuration for location behavior | `LocationConfig()` |
+| `onPermissionDenied` | `@Composable (() -> Unit) -> Unit` | Content displayed when permission is denied | Default permission UI |
+| `onLoading` | `@Composable () -> Unit` | Content displayed while fetching location | Default loading UI |
+| `onError` | `@Composable (String, () -> Unit) -> Unit` | Content displayed when an error occurs | Default error UI |
+| `onInitial` | `@Composable (() -> Unit) -> Unit` | Content displayed before location request | Default button |
+
+### LocationConfig
+
+| Property | Type | Description | Default |
+|----------|------|-------------|---------|
 | `autoRequest` | `Boolean` | Whether to request location automatically | `false` |
+| `singleRequest` | `Boolean` | Whether to request location only once | `false` |
+| `highAccuracy` | `Boolean` | Whether to use high accuracy (GPS) | `true` |
+| `updateIntervalMs` | `Long` | Interval between location updates (ms) | `10_000L` |
+| `minUpdateIntervalMs` | `Long` | Minimum interval between updates (ms) | `5_000L` |
+| `maxUpdateDelayMs` | `Long` | Maximum delay for location updates (ms) | `15_000L` |
+| `timeoutMs` | `Long` | Timeout for location requests (ms) | `30_000L` |
 
 ### Location Data
 
@@ -167,13 +360,59 @@ LocationProvider(
 data class Location(
     val latitude: Double,
     val longitude: Double,
-    val accuracy: Float,
-    val altitude: Double?,
-    val bearing: Float?,
-    val speed: Float?,
-    val timestamp: Long
+    val accuracy: Float, // Accuracy in meters
+    val altitude: Double?, // Altitude in meters (if available)
+    val bearing: Float?, // Direction of travel (if available)
+    val speed: Float?, // Speed in m/s (if available)
+    val timestamp: Long, // Time when location was obtained
+    val provider: String? // Location provider (GPS, Network, etc.)
 )
 ```
+
+### Location Extensions
+
+```kotlin
+// Format location coordinates
+val formatted = location.format(precision = 4) // "40.7128, -74.0060"
+
+// Calculate distance between two locations
+val distance = location1.distanceTo(location2) // Distance in meters
+```
+
+### LocationState
+
+```kotlin
+sealed class LocationState {
+    object Loading : LocationState()
+    data class Success(val location: Location) : LocationState()
+    data class Error(val message: String) : LocationState()
+    object PermissionDenied : LocationState()
+}
+```
+
+## 🔧 Advanced Features
+
+### Smart Error Recovery
+
+KU automatically handles location errors intelligently:
+
+- **Before first location**: Shows error states to inform users
+- **After first location**: Silently retries in background, keeps showing last known location
+- **Graceful degradation**: Falls back to network location if GPS fails
+- **Automatic recovery**: Resumes updates when location services become available
+
+### Multiple Fallback Strategies
+
+1. **Primary**: Current location with cancellation token
+2. **Fallback 1**: Last known location (if recent)
+3. **Fallback 2**: Short-duration location updates
+4. **Fallback 3**: Network-based location
+
+### Battery Optimization
+
+- Configurable update intervals to balance accuracy vs battery life
+- Automatic cleanup of location listeners
+- Smart use of location providers based on accuracy requirements
 
 ## 📱 Platform Setup
 
@@ -184,20 +423,96 @@ Add location permissions to your `AndroidManifest.xml`:
 ```xml
 <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+<!-- Optional: For background location (if needed) -->
+<uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+```
+
+**ProGuard/R8 Rules** (if using code obfuscation):
+
+```proguard
+-keep class com.google.android.gms.location.** { *; }
+-dontwarn com.google.android.gms.**
 ```
 
 ### iOS
 
-Add location usage description to your `Info.plist`:
+Add location usage descriptions to your `Info.plist`:
 
 ```xml
 <key>NSLocationWhenInUseUsageDescription</key>
-<string>This app needs location access to show your current position.</string>
+<string>This app needs location access to show your current position and nearby places.</string>
+
+<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+<string>This app needs location access to provide location-based services.</string>
 ```
+
+## 🧪 Testing
+
+### Testing Location Functionality
+
+```kotlin
+@Test
+fun testLocationProvider() {
+    // Use Android Location Testing framework or iOS Location Simulator
+    // KU integrates well with standard platform testing tools
+}
+```
+
+### Mock Location Data
+
+```kotlin
+val mockLocation = Location(
+    latitude = 40.7128,
+    longitude = -74.0060,
+    accuracy = 10.0f,
+    altitude = 100.0,
+    speed = null,
+    bearing = null,
+    timestamp = System.currentTimeMillis(),
+    provider = "mock"
+)
+```
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+**Location always returns null/error:**
+- Ensure location permissions are granted
+- Check if location services are enabled on device
+- Test outdoors for better GPS signal
+- Increase `timeoutMs` in LocationConfig
+
+**UI keeps flashing between states:**
+- This is fixed in the latest version
+- Ensure you're using the updated LocationProvider API
+
+**Battery drain:**
+- Increase `updateIntervalMs` and `minUpdateIntervalMs`
+- Set `singleRequest = true` if you only need one location
+- Set `highAccuracy = false` for less precise but battery-friendly location
+
+**iOS permission issues:**
+- Ensure Info.plist entries are correctly formatted
+- Test on physical device (simulator behavior may differ)
 
 ## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
+
+### Development Setup
+
+1. Clone the repository
+2. Open in Android Studio or IntelliJ IDEA
+3. Sync Gradle dependencies
+4. Run sample apps to test changes
+
+### Code Style
+
+- Follow Kotlin coding conventions
+- Add documentation for public APIs
+- Include unit tests for new features
 
 ## 📄 License
 
