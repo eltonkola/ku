@@ -23,6 +23,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 import kotlin.math.PI
 
 // Configuration class for cleaner API
@@ -36,6 +37,15 @@ data class LocationConfig(
     val timeoutMs: Long = 30_000L
 )
 
+// Enhanced state management
+sealed class LocationUiState {
+    object Initial : LocationUiState()
+    object Loading : LocationUiState()
+    data class Success(val location: Location) : LocationUiState()
+    data class Error(val message: String) : LocationUiState()
+    object PermissionDenied : LocationUiState()
+}
+
 // Main API - fully customizable UI
 @Composable
 fun LocationProvider(
@@ -46,6 +56,7 @@ fun LocationProvider(
         DefaultPermissionDeniedContent(onRequestPermission = requestPermission)
     },
     onLoading: @Composable () -> Unit = { DefaultLoadingContent() },
+    onRetrying: @Composable () -> Unit = { DefaultLoadingContent() },
     onError: @Composable (String, () -> Unit) -> Unit = { error, retry ->
         DefaultErrorContent(error, retry)
     },
@@ -54,33 +65,58 @@ fun LocationProvider(
     }
 ) {
     val locationClient = rememberLocationClient()
-    var isLocationRequested by remember { mutableStateOf(config.autoRequest) }
-    var retryTrigger by remember { mutableStateOf(0) }
+    var uiState by remember { mutableStateOf<LocationUiState>(
+        if (config.autoRequest) LocationUiState.Loading else LocationUiState.Initial
+    ) }
+    var requestTrigger by remember { mutableStateOf(0) }
 
-    // Handle auto request
-    LaunchedEffect(config.autoRequest, retryTrigger) {
-        if (config.autoRequest && !isLocationRequested) {
-            isLocationRequested = true
+    // Handle location requests
+    LaunchedEffect(requestTrigger) {
+        if (uiState is LocationUiState.Initial) return@LaunchedEffect
+
+        uiState = LocationUiState.Loading
+
+        try {
+            locationClient.getLocation(config, requestTrigger)
+                .collect { locationState ->
+                    uiState = when (locationState) {
+                        is LocationState.Success -> {
+                            LocationUiState.Success(locationState.location)
+                        }
+                        LocationState.PermissionDenied -> {
+                            LocationUiState.PermissionDenied
+                        }
+                        is LocationState.Error -> {
+                            LocationUiState.Error(locationState.message)
+                        }
+                        LocationState.Loading -> LocationUiState.Loading
+                    }
+                }
+        } catch (e: Exception) {
+            uiState = LocationUiState.Error(
+                e.message ?: "Unknown error occurred"
+            )
         }
     }
 
     Box(modifier = modifier) {
-        if (isLocationRequested) {
-            val locationState by locationClient.getLocation(config, retryTrigger)
-                .collectAsState(initial = LocationState.Loading)
-
-            when (val state = locationState) {
-                is LocationState.Success -> onLocationReceived(state.location)
-                LocationState.PermissionDenied -> onPermissionDenied {
-                    locationClient.requestPermission()
-                }
-                is LocationState.Error -> onError(state.message) {
-                    retryTrigger++
-                }
-                LocationState.Loading -> onLoading()
+        when (val state = uiState) {
+            LocationUiState.Initial -> onInitial {
+                uiState = LocationUiState.Loading
+                requestTrigger++
             }
-        } else {
-            onInitial { isLocationRequested = true }
+            LocationUiState.Loading -> onLoading()
+            is LocationUiState.Success -> onLocationReceived(state.location)
+            LocationUiState.PermissionDenied -> onPermissionDenied {
+                locationClient.requestPermission()
+                // Reset state after permission request
+                uiState = LocationUiState.Loading
+                requestTrigger++
+            }
+            is LocationUiState.Error -> onError(state.message) {
+                // User manually triggered retry
+                requestTrigger++
+            }
         }
     }
 }
@@ -107,6 +143,7 @@ fun LocationProvider(
             DefaultPermissionDeniedContent(onRequestPermission = requestPermission)
         },
         onLoading = { DefaultLoadingContent() },
+        onRetrying = { DefaultLoadingContent() },
         onError = { error, retry ->
             onError(error)
             DefaultErrorContent(error, retry)
@@ -219,6 +256,7 @@ fun Location.format(precision: Int = 6): String {
     val lon = longitude.roundToDecimals(precision)
     return "$lat, $lon"
 }
+
 fun Location.distanceTo(other: Location): Float {
     // Haversine formula for distance calculation
     val R = 6371000f // Earth's radius in meters
@@ -248,4 +286,3 @@ fun useLocation(config: LocationConfig = LocationConfig()): LocationState {
 
     return locationState
 }
-

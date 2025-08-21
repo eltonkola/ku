@@ -10,29 +10,35 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun App() {
     MaterialTheme {
-        var locationText by remember { mutableStateOf("Press button to get location") }
+        var showMinimal by remember { mutableStateOf(false) }
         
         Column(
             modifier = Modifier.fillMaxSize().padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Text("KMM Location Demo", style = MaterialTheme.typography.headlineMedium)
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
             Button(
                 onClick = {
-                    // This will be implemented in platform-specific code
-                    locationText = "Getting location..."
+                    showMinimal = !showMinimal
                 }
             ) {
-                Text("Get My Location")
+                Text(if(showMinimal) "Show Custom" else "Show Minimal")
             }
             
             Spacer(modifier = Modifier.height(16.dp))
-            
-            Text(locationText, style = MaterialTheme.typography.bodyLarge)
+
+            Box(
+                modifier = Modifier.fillMaxSize().weight(1f),
+                contentAlignment = Alignment.Center
+            ){
+                if(showMinimal){
+                    Minimanl()
+                }else{
+                    Custom()
+                }
+            }
+
+
         }
     }
 }

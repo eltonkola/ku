@@ -13,11 +13,14 @@ import androidx.core.content.ContextCompat
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
 import com.google.android.gms.location.*
-import com.google.android.gms.tasks.Task
+import com.google.android.gms.tasks.CancellationTokenSource
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 
 actual class LocationClient actual constructor() {
     private var fusedLocationClient: FusedLocationProviderClient? = null
@@ -64,14 +67,33 @@ actual class LocationClient actual constructor() {
 
             try {
                 if (config.singleRequest) {
-                    getSingleLocation(client, config)?.let { location ->
+                    getSingleLocationWithFallback(client, config)?.let { location ->
                         emit(LocationState.Success(location))
-                    } ?: emit(LocationState.Error("Unable to get current location"))
+                    } ?: emit(LocationState.Error("Unable to get current location. Please try again or ensure you're in an area with good GPS signal."))
                 } else {
+                    var hasEverEmittedLocation = false
+                    var lastSuccessfulLocation: Location? = null
+
                     getContinuousLocation(client, config).collect { state ->
-                        emit(state)
+                        when (state) {
+                            is LocationState.Success -> {
+                                hasEverEmittedLocation = true
+                                lastSuccessfulLocation = state.location
+                                emit(state)
+                            }
+                            is LocationState.Error -> {
+                                // Only emit error if we never had a successful location
+                                if (!hasEverEmittedLocation) {
+                                    emit(state)
+                                }
+                                // Otherwise, silently ignore the error and keep showing last location
+                            }
+                            else -> emit(state)
+                        }
                     }
                 }
+            } catch (e: SecurityException) {
+                emit(LocationState.PermissionDenied)
             } catch (e: Exception) {
                 emit(LocationState.Error("Location request failed: ${e.message}"))
             }
@@ -82,21 +104,94 @@ actual class LocationClient actual constructor() {
             .distinctUntilChanged()
 
     @SuppressLint("MissingPermission")
-    private suspend fun getSingleLocation(
+    private suspend fun getSingleLocationWithFallback(
         client: FusedLocationProviderClient,
         config: LocationConfig
     ): Location? {
         return withTimeoutOrNull(config.timeoutMs) {
             try {
+                // First, try to get current location with cancellation token
+                val cancellationTokenSource = CancellationTokenSource()
                 val priority = if (config.highAccuracy) Priority.PRIORITY_HIGH_ACCURACY
                 else Priority.PRIORITY_BALANCED_POWER_ACCURACY
 
-                val androidLocation = client.getCurrentLocation(priority, null).await()
-                androidLocation?.toLocationData()
+                val currentLocation = client.getCurrentLocation(priority, cancellationTokenSource.token).await()
+
+                // If getCurrentLocation returns null, try alternative methods
+                if (currentLocation != null) {
+                    return@withTimeoutOrNull currentLocation.toLocationData()
+                }
+
+                // Fallback 1: Try last known location
+                val lastKnownLocation = client.lastLocation.await()
+                if (lastKnownLocation != null && isLocationRecent(lastKnownLocation)) {
+                    return@withTimeoutOrNull lastKnownLocation.toLocationData()
+                }
+
+                // Fallback 2: Use location updates for a short period
+                return@withTimeoutOrNull getLocationFromUpdates(client, config)
+
+            } catch (e: SecurityException) {
+                throw e // Re-throw security exceptions
             } catch (e: Exception) {
-                null
+                // Try fallback methods even if getCurrentLocation throws
+                try {
+                    val lastKnownLocation = client.lastLocation.await()
+                    if (lastKnownLocation != null && isLocationRecent(lastKnownLocation)) {
+                        return@withTimeoutOrNull lastKnownLocation.toLocationData()
+                    }
+
+                    return@withTimeoutOrNull getLocationFromUpdates(client, config)
+                } catch (fallbackException: Exception) {
+                    null
+                }
             }
         }
+    }
+
+    @SuppressLint("MissingPermission")
+    private suspend fun getLocationFromUpdates(
+        client: FusedLocationProviderClient,
+        config: LocationConfig
+    ): Location? = suspendCancellableCoroutine { continuation ->
+        val priority = if (config.highAccuracy) Priority.PRIORITY_HIGH_ACCURACY
+        else Priority.PRIORITY_BALANCED_POWER_ACCURACY
+
+        val locationRequest = LocationRequest.Builder(priority, 1000L) // Fast updates for single location
+            .setMinUpdateIntervalMillis(500L)
+            .setMaxUpdateDelayMillis(2000L)
+            .setMaxUpdates(1) // Stop after first location
+            .build()
+
+        val callback = object : LocationCallback() {
+            override fun onLocationResult(result: LocationResult) {
+                result.lastLocation?.let { location ->
+                    if (continuation.isActive) {
+                        continuation.resume(location.toLocationData())
+                    }
+                }
+                // Clean up
+                client.removeLocationUpdates(this)
+            }
+        }
+
+        // Set up cancellation
+        continuation.invokeOnCancellation {
+            client.removeLocationUpdates(callback)
+        }
+
+        // Start location updates
+        client.requestLocationUpdates(locationRequest, callback, Looper.getMainLooper())
+            .addOnFailureListener { exception ->
+                if (continuation.isActive) {
+                    continuation.resume(null)
+                }
+            }
+    }
+
+    private fun isLocationRecent(location: android.location.Location): Boolean {
+        val maxAgeMs = 5 * 60 * 1000 // 5 minutes
+        return (System.currentTimeMillis() - location.time) < maxAgeMs
     }
 
     @SuppressLint("MissingPermission")
@@ -112,25 +207,53 @@ actual class LocationClient actual constructor() {
             .setMaxUpdateDelayMillis(config.maxUpdateDelayMs)
             .build()
 
+        var lastSuccessfulLocation: Location? = null
+        var hasEverReceivedLocation = false
+
         val callback = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
                 if (isDisposed) return
                 result.lastLocation?.let { location ->
-                    trySend(LocationState.Success(location.toLocationData()))
+                    val locationData = location.toLocationData()
+                    lastSuccessfulLocation = locationData
+                    hasEverReceivedLocation = true
+                    trySend(LocationState.Success(locationData))
                 }
             }
 
             override fun onLocationAvailability(availability: LocationAvailability) {
                 if (isDisposed) return
                 if (!availability.isLocationAvailable) {
-                    trySend(LocationState.Error("Location temporarily unavailable"))
+                    // Only send error if we never had a location
+                    if (!hasEverReceivedLocation) {
+                        trySend(LocationState.Error("Location temporarily unavailable. Please ensure GPS is enabled and you're in an area with good signal."))
+                    }
+                    // If we have a location, silently ignore this error and keep showing the last location
                 }
             }
         }.also { locationCallback = it }
 
+        // Start with trying to get last known location for immediate response
+        try {
+            client.lastLocation.await()?.let { lastLocation ->
+                if (isLocationRecent(lastLocation)) {
+                    val locationData = lastLocation.toLocationData()
+                    lastSuccessfulLocation = locationData
+                    hasEverReceivedLocation = true
+                    trySend(LocationState.Success(locationData))
+                }
+            }
+        } catch (e: Exception) {
+            // Ignore errors from last known location, continue with updates
+        }
+
         client.requestLocationUpdates(locationRequest, callback, Looper.getMainLooper())
             .addOnFailureListener { exception ->
-                trySend(LocationState.Error("Failed to start location updates: ${exception.message}"))
+                // Only send error if we never had a location
+                if (!hasEverReceivedLocation) {
+                    trySend(LocationState.Error("Failed to start location updates: ${exception.message}"))
+                }
+                // If we have a location, silently ignore this error
             }
 
         awaitClose { cleanup() }
@@ -168,7 +291,10 @@ actual class LocationClient actual constructor() {
 
     actual fun requestPermission() {
         (context as? Activity)?.requestPermissions(
-            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
+            arrayOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            ),
             LOCATION_PERMISSION_REQUEST_CODE
         )
     }
