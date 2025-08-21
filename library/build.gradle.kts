@@ -13,7 +13,7 @@ plugins {
 }
 
 group = "io.github.eltonkola"
-version = "0.0.3"
+version = "0.0."
 
 kotlin {
     jvm("desktop") {
@@ -37,17 +37,6 @@ kotlin {
         browser()
         binaries.executable()
     }
-//    @OptIn(ExperimentalWasmDsl::class)
-//    wasmJs {
-//        browser {
-//            commonWebpackConfig {
-//                cssSupport {
-//                    enabled = true
-//                }
-//            }
-//        }
-//        binaries.executable()
-//    }
 
     sourceSets {
         val commonMain by getting {
@@ -64,7 +53,7 @@ kotlin {
         val androidMain by getting {
             dependencies {
                 implementation(libs.play.services.location)
-                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
+                implementation(libs.kotlinx.coroutines.play.services)
             }
         }
         val desktopMain by getting {
