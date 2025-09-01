@@ -13,7 +13,7 @@ plugins {
 }
 
 group = "io.github.eltonkola"
-version = "0.0."
+version = "0.0.5"
 
 kotlin {
     jvm("desktop") {
